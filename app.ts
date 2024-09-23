@@ -5,6 +5,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
 import { setupSwagger } from './swagger.config';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 //#region App Setup
 const app = express();
@@ -12,6 +13,16 @@ const app = express();
 dotenv.config({ path: './.env' });
 const PORT = process.env.PORT || 5000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const GOOGLE_GEMINI_KEY = process.env.GOOGLE_GEMINI_KEY || 'xxxx';
+
+const genAI = new GoogleGenerativeAI(GOOGLE_GEMINI_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const AIRules = [
+  'Be helpful.',
+  'Summarize in 30 words max.',
+  'Avoid repeating the question; give direct answers.',
+  // 'Limit scope to countries/capitals; reply just "#E-OS" otherwise.',
+];
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -22,8 +33,90 @@ setupSwagger(app, BASE_URL);
 //#endregion App Setup
 
 //#region Code here
-console.log('Hello world');
-//#endregion
+
+/**
+ * @swagger
+ * /ai/{prompt}:
+ *   get:
+ *     summary: Generate content based on a prompt
+ *     description: Returns generated content based on the provided prompt.
+ *     parameters:
+ *       - in: path
+ *         name: prompt
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The input prompt to generate content for.
+ *     responses:
+ *       200:
+ *         description: A successful response containing the generated content.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *       400:
+ *         description: Bad request (invalid input)
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/ai/:prompt', async (req, res) => {
+  const prompt = req.params.prompt;
+
+  const result = await model.generateContent(prompt);
+  console.log(result.response.text());
+  return res.send(result.response.text());
+});
+
+/**
+ * @swagger
+ * /chat/{prompt}:
+ *   get:
+ *     summary: AI Assistant chat
+ *     description: Returns generated content based on the provided prompt.
+ *     parameters:
+ *       - in: path
+ *         name: prompt
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The input prompt to generate content for.
+ *     responses:
+ *       200:
+ *         description: A successful response containing the generated content.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *       400:
+ *         description: Bad request (invalid input)
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/chat/:prompt', async (req, res) => {
+  const prompt = req.params.prompt;
+
+  const chat = model.startChat({
+    history: [
+      // {
+      //   role: 'user',
+      //   parts: [{ text: 'Hello' }],
+      // },
+      {
+        role: 'user',
+        parts: [{ text: AIRules.toString() }],
+      },
+    ],
+  });
+
+  let result = await chat.sendMessage(prompt);
+  // console.log(result.response.text());
+  // result = await chat.sendMessage("How many paws are in my house?");
+  // console.log(result.response.text());
+
+  return res.send(result.response.text());
+});
+
+//#endregion Code here
 
 //#region Server Setup
 
@@ -92,7 +185,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.log(`${'\x1b[31m'}`); // start color red
   console.log(`${err.message}`);
   console.log(`${'\x1b][0m]'}`); //stop color
-  
+
   return res
     .status(500)
     .send({ success: false, status: 500, message: err.message });
